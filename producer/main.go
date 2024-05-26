@@ -61,6 +61,7 @@ func main() {
 
 				client.Produce(ctx, record, func(_ *kgo.Record, err error) {
 					if err != nil {
+						// TODO: how many times should we fail to produce before reacting?
 						log.Printf("error: failed to produce record: %v\n", err)
 					}
 					log.Printf("produced record:\n\tkey:%s\n\tvalue:%s\n\ttopic:%s\n\tpartition:%d\n\toffset:%d\n", record.Key, record.Value, record.Topic, record.Partition, record.Offset)

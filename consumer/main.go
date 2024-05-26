@@ -42,6 +42,7 @@ func main() {
 			fetches := client.PollFetches(ctx)
 
 			if errs := fetches.Errors(); len(errs) > 0 {
+				// TODO: how many times should we fail to fetch before reacting?
 				log.Printf("error: consumer fetches errors: %v", errs)
 			}
 
