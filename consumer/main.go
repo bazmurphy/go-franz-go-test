@@ -2,53 +2,54 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 func main() {
+	log.Printf("consumer starting...")
+
 	seeds := []string{"localhost:9092"}
-	// One client can both produce and consume!
-	// Consuming can either be direct (no consumer group), or through a group. Below, we use a group.
-	cl, err := kgo.NewClient(
+
+	client, err := kgo.NewClient(
 		kgo.SeedBrokers(seeds...),
-		kgo.ConsumerGroup("my-group-identifier"),
-		kgo.ConsumeTopics("foo"),
+		kgo.ConsumerGroup("my-group"),
+		kgo.ConsumeTopics("my-topic"),
+		// kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()),
 	)
 	if err != nil {
-		panic(err)
+		log.Fatalf("error: failed to create new consumer: %v\n", err)
 	}
-	defer cl.Close()
+	defer client.Close()
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	// 2.) Consuming messages from a topic
+	signalChannel := make(chan os.Signal, 1)
+	signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
+
 	for {
-		fetches := cl.PollFetches(ctx)
-		if errs := fetches.Errors(); len(errs) > 0 {
-			// All errors are retried internally when fetching, but non-retriable errors are
-			// returned from polls so that users can notice and take action.
-			panic(fmt.Sprint(errs))
+		select {
+		case <-signalChannel:
+			log.Println("received signal, cancelling context, shutting down consumer...")
+			cancel()
+			return
+		default:
+			fetches := client.PollFetches(ctx)
+
+			if errs := fetches.Errors(); len(errs) > 0 {
+				log.Printf("error: consumer fetches errors: %v", errs)
+			}
+
+			iterator := fetches.RecordIter()
+			for !iterator.Done() {
+				record := iterator.Next()
+				log.Printf("consumed record:\n\tkey:%s\n\tvalue:%s\n\ttopic:%s\n\tpartition:%d\n\toffset:%d\n", record.Key, record.Value, record.Topic, record.Partition, record.Offset)
+			}
 		}
-
-		// We can iterate through a record iterator...
-		iter := fetches.RecordIter()
-		for !iter.Done() {
-			record := iter.Next()
-			fmt.Println(string(record.Value), "from an iterator!")
-		}
-
-		// or a callback function.
-		// fetches.EachPartition(func(p kgo.FetchTopicPartition) {
-		// 	for _, record := range p.Records {
-		// 		fmt.Println(string(record.Value), "from range inside a callback!")
-		// 	}
-
-		// 	// We can even use a second callback!
-		// 	p.EachRecord(func(record *kgo.Record) {
-		// 		fmt.Println(string(record.Value), "from a second callback!")
-		// 	})
-		// })
 	}
 }
